@@ -1,0 +1,206 @@
+{% extends 'clean_base.html' %}
+
+{% block title %}Log Analyzer - Home{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-5">
+        <div class="text-center mb-5">
+            <h1 class="display-4"><i class="bi bi-file-earmark-text"></i> Log Analyzer</h1>
+            <p class="lead">Upload Apache server log files to analyze and visualize log data</p>
+        </div>
+        <div class="card shadow">
+            <div class="card-header bg-primary text-white">
+                <h3 class="mb-0"><i class="bi bi-upload"></i> Upload Log File</h3>
+            </div>
+            <div class="card-body">
+                
+                <!-- Processing Status Section (hidden by default) -->
+                <div id="processingStatus" class="mb-4" style="display: none;">
+                    <h5><i class="bi bi-gear-fill me-2 spin"></i> Processing Log File</h5>
+                    <div id="currentFileInfo" class="mb-2"></div>
+                    <div class="progress mb-2">
+                        <div id="processingProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <small id="processingDetails" class="text-muted">Initializing...</small>
+                        <small id="processingTime" class="text-muted"></small>
+                    </div>
+                    <div class="mt-3 text-center text-muted">
+                        <small>You will be automatically redirected to the dashboard when processing completes</small>
+                    </div>
+                </div>
+                
+                <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data" class="mb-4" id="uploadForm">
+                    <div class="mb-3">
+                        <label for="logfile" class="form-label d-flex align-items-center">
+                            Select Log File
+                            <button type="button" class="btn btn-sm ms-2" data-bs-toggle="modal" data-bs-target="#logFormatModal">
+                                <i class="bi bi-info-circle text-primary"></i>
+                            </button>
+                        </label>
+                        <input class="form-control form-control-lg" type="file" id="logfile" name="logfile" accept=".log,.txt">
+                    </div>
+                    <div class="d-grid mt-4">
+                        <button type="submit" class="btn btn-primary btn-lg" id="uploadButton">
+                            <i class="bi bi-upload"></i> Upload and Process
+                        </button>
+                    </div>
+                </form>
+                
+                <!-- Log Format Modal -->
+                <div class="modal fade" id="logFormatModal" tabindex="-1" aria-labelledby="logFormatModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="logFormatModalLabel"><i class="bi bi-info-circle"></i> Supported Log Format</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <p>This application supports Apache server logs in the following format:</p>
+                                <pre class="bg-light p-3 rounded">
+IP Remote-LogName User-ID [Timestamp] "Request-Type API Protocol" Status-Code Bytes "Referrer" "User-Agent" Response-Time</pre>
+                                <p class="mt-3">Example:</p>
+                                <pre class="bg-light p-3 rounded">
+192.168.1.1 - john [10/Oct/2023:13:55:36 +0000] "GET /api/users HTTP/1.1" 200 2326 "http://example.com" "Mozilla/5.0" 0.003</pre>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Variables to track processing
+    let processingFileName = null;
+    let processingStartTime = null;
+    let checkInterval = null;
+    
+    // Format time elapsed
+    function formatTimeElapsed(milliseconds) {
+        const seconds = Math.floor(milliseconds / 1000);
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+    }
+    
+    // Check if there's a file being processed when the page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        // Check URL parameters for processing file
+        const urlParams = new URLSearchParams(window.location.search);
+        const fileName = urlParams.get('processing');
+        
+        if (fileName) {
+            processingFileName = decodeURIComponent(fileName);
+            processingStartTime = Date.now();
+            showProcessingUI(processingFileName);
+            startProgressChecking(processingFileName);
+        }
+        
+        // Handle form submission
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            const fileInput = document.getElementById('logfile');
+            if (fileInput.files.length > 0) {
+                const fileName = fileInput.files[0].name;
+                localStorage.setItem('processingFile', fileName);
+                localStorage.setItem('processingStartTime', Date.now().toString());
+            }
+        });
+    });
+    
+    // Show processing UI
+    function showProcessingUI(fileName) {
+        document.getElementById('uploadForm').style.display = 'none';
+        document.getElementById('processingStatus').style.display = 'block';
+        document.getElementById('currentFileInfo').textContent = `File: ${fileName}`;
+    }
+    
+    // Start checking progress
+    function startProgressChecking(fileName) {
+        // Clear any existing interval
+        if (checkInterval) {
+            clearInterval(checkInterval);
+        }
+        
+        // Immediately check once
+        checkProcessingStatus(fileName);
+        
+        // Start a new interval - check more frequently (every 500ms)
+        checkInterval = setInterval(function() {
+            checkProcessingStatus(fileName);
+        }, 500);
+    }
+    
+    // Check processing status
+    function checkProcessingStatus(fileName) {
+        fetch(`/processing_status/${encodeURIComponent(fileName)}`)
+            .then(response => response.json())
+            .then(data => {
+                // Update progress bar
+                const progressBar = document.getElementById('processingProgressBar');
+                const progressDetails = document.getElementById('processingDetails');
+                const processingTime = document.getElementById('processingTime');
+                
+                // Calculate time elapsed
+                const elapsed = Date.now() - processingStartTime;
+                processingTime.textContent = `Time: ${formatTimeElapsed(elapsed)}`;
+                
+                if (data.status === 'processing') {
+                    // Update progress
+                    const progress = data.progress || 0;
+                    progressBar.style.width = `${progress}%`;
+                    progressBar.setAttribute('aria-valuenow', progress);
+                    progressBar.textContent = `${progress}%`;
+                    
+                    // Update details
+                    if (data.total > 0) {
+                        progressDetails.textContent = `Processed ${data.progress}% of ${data.total} lines`;
+                    } else {
+                        progressDetails.textContent = 'Analyzing file...';
+                    }
+                } else if (data.status === 'completed') {
+                    console.log('Processing completed, redirecting soon...');
+                    // Show completion
+                    progressBar.style.width = '100%';
+                    progressBar.classList.remove('progress-bar-striped', 'progress-bar-animated');
+                    progressBar.classList.add('bg-success');
+                    progressDetails.textContent = `Completed! Processed ${data.processed} log entries. Redirecting to dashboard...`;
+                    
+                    // Stop checking
+                    clearInterval(checkInterval);
+                    
+                    // Redirect to dashboard after a short delay
+                    setTimeout(function() {
+                        console.log('Redirecting now...');
+                        window.location.href = '/dashboard';
+                    }, 1500);
+                } else if (data.status === 'error') {
+                    // Show error
+                    progressBar.classList.remove('progress-bar-striped', 'progress-bar-animated');
+                    progressBar.classList.add('bg-danger');
+                    progressDetails.textContent = `Error: ${data.error || 'Unknown error'}`;
+                    
+                    // Stop checking
+                    clearInterval(checkInterval);
+                } else if (data.status === 'unknown') {
+                    // File not found in processing queue
+                    progressDetails.textContent = 'No active processing found. File may be completed.';
+                    
+                    // Stop checking
+                    clearInterval(checkInterval);
+                }
+            })
+            .catch(error => {
+                console.error('Error checking processing status:', error);
+            });
+    }
+</script>
+{% endblock %}

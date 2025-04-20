@@ -1,0 +1,183 @@
+{% extends 'clean_base.html' %}
+
+{% block title %}Log Analyzer - Analytics{% endblock %}
+
+{% block content %}
+<div class="text-center mb-5">
+    <h1 class="display-4"><i class="bi bi-graph-up"></i> Analytics</h1>
+    <p class="lead">Visualize and analyze your log data</p>
+    <a href="{{ url_for('index') }}" class="btn btn-outline-primary btn-sm mt-2">
+        <i class="bi bi-upload"></i> Upload New Log
+    </a>
+    <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary btn-sm mt-2 ms-2">
+        <i class="bi bi-speedometer2"></i> Dashboard
+    </a>
+    <a href="{{ url_for('view_logs') }}" class="btn btn-outline-success btn-sm mt-2 ms-2">
+        <i class="bi bi-list-ul"></i> View Logs
+    </a>
+</div>
+
+<div class="row">
+    <!-- Status Code Distribution -->
+    <div class="col-md-6 mb-4">
+        <div class="card shadow mb-4 border-0">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-bar-chart text-primary"></i> Status Code Distribution</h5>
+            </div>
+            <div class="card-body">
+                <div id="statusChart" style="height: 350px;"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Request Type Distribution -->
+    <div class="col-md-6 mb-4">
+        <div class="card shadow mb-4 border-0">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-pie-chart text-success"></i> Request Type Distribution</h5>
+            </div>
+            <div class="card-body">
+                <div id="requestChart" style="height: 350px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Top IPs -->
+    <div class="col-md-6 mb-4">
+        <div class="card shadow mb-4 border-0">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-bar-chart text-info"></i> Top 10 IP Addresses</h5>
+            </div>
+            <div class="card-body">
+                <div id="ipChart" style="height: 350px;"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Top APIs -->
+    <div class="col-md-6 mb-4">
+        <div class="card shadow mb-4 border-0">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-bar-chart text-warning"></i> Top 5 APIs</h5>
+            </div>
+            <div class="card-body">
+                <div id="apiChart" style="height: 350px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Export Options -->
+    <div class="col-md-12">
+        <div class="card shadow mb-4 border-0">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="bi bi-download text-primary"></i> Export Data</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <a href="{{ url_for('api_logs') }}" class="btn btn-outline-primary d-block" target="_blank">
+                            <i class="bi bi-filetype-json"></i> Export as JSON
+                        </a>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <button id="exportCSV" class="btn btn-outline-success d-block">
+                            <i class="bi bi-filetype-csv"></i> Export as CSV
+                        </button>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <button id="saveCharts" class="btn btn-outline-info d-block">
+                            <i class="bi bi-image"></i> Save Charts as Images
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Parse the JSON data from the server
+        const statusChart = JSON.parse('{{ status_chart|safe }}');
+        const requestChart = JSON.parse('{{ request_chart|safe }}');
+        const ipChart = JSON.parse('{{ ip_chart|safe }}');
+        const apiChart = JSON.parse('{{ api_chart|safe }}');
+        
+        // Render the charts
+        Plotly.newPlot('statusChart', statusChart.data, statusChart.layout);
+        Plotly.newPlot('requestChart', requestChart.data, requestChart.layout);
+        Plotly.newPlot('ipChart', ipChart.data, ipChart.layout);
+        Plotly.newPlot('apiChart', apiChart.data, apiChart.layout);
+        
+        // Export as CSV functionality
+        document.getElementById('exportCSV').addEventListener('click', function() {
+            fetch('{{ url_for("api_logs") }}')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.length === 0) {
+                        alert('No data to export');
+                        return;
+                    }
+                    
+                    // Get headers from the first object
+                    const headers = Object.keys(data[0]);
+                    
+                    // Create CSV content
+                    let csvContent = headers.join(',') + '\n';
+                    
+                    // Add data rows
+                    data.forEach(row => {
+                        const values = headers.map(header => {
+                            const value = row[header] || '';
+                            // Escape quotes and wrap in quotes if contains comma
+                            return typeof value === 'string' && (value.includes(',') || value.includes('"')) 
+                                ? `"${value.replace(/"/g, '""')}"` 
+                                : value;
+                        });
+                        csvContent += values.join(',') + '\n';
+                    });
+                    
+                    // Create and trigger download
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.setAttribute('href', url);
+                    link.setAttribute('download', 'log_data.csv');
+                    link.style.visibility = 'hidden';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                })
+                .catch(error => {
+                    console.error('Error exporting CSV:', error);
+                    alert('Error exporting data');
+                });
+        });
+        
+        // Save charts as images
+        document.getElementById('saveCharts').addEventListener('click', function() {
+            const charts = [
+                { element: 'statusChart', filename: 'status_distribution.png' },
+                { element: 'requestChart', filename: 'request_distribution.png' },
+                { element: 'ipChart', filename: 'top_ips.png' },
+                { element: 'apiChart', filename: 'top_apis.png' }
+            ];
+            
+            charts.forEach(chart => {
+                Plotly.downloadImage(chart.element, {
+                    format: 'png',
+                    filename: chart.filename,
+                    width: 800,
+                    height: 600
+                });
+            });
+        });
+    });
+</script>
+{% endblock %}

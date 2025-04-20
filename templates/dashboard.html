@@ -1,0 +1,393 @@
+{% extends 'clean_base.html' %}
+
+{% block title %}Log Analyzer - Dashboard{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Function to check processing status of files
+    function checkProcessingStatus() {
+        const processingRows = document.querySelectorAll('.processing-row');
+        
+        processingRows.forEach(row => {
+            const fileName = row.dataset.fileName;
+            const statusCell = row.querySelector('.status-cell');
+            const progressBar = row.querySelector('.progress-bar');
+            
+            fetch(`/processing_status/${encodeURIComponent(fileName)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'processing') {
+                        // Update progress bar
+                        if (progressBar) {
+                            progressBar.style.width = `${data.progress}%`;
+                            progressBar.setAttribute('aria-valuenow', data.progress);
+                            progressBar.textContent = `${data.progress}%`;
+                        }
+                        
+                        // Schedule next check in 2 seconds
+                        setTimeout(() => {
+                            checkProcessingStatus();
+                        }, 2000);
+                    } else if (data.status === 'completed') {
+                        // Update UI to show completion
+                        if (statusCell) {
+                            statusCell.innerHTML = `<span class="badge bg-success">Completed</span> ${data.processed} logs`;
+                        }
+                        if (progressBar) {
+                            progressBar.style.width = '100%';
+                            progressBar.classList.remove('progress-bar-striped', 'progress-bar-animated');
+                            progressBar.classList.add('bg-success');
+                        }
+                        
+                        // Refresh the page after completion to show updated stats
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1000);
+                    } else if (data.status === 'error') {
+                        // Show error
+                        if (statusCell) {
+                            statusCell.innerHTML = `<span class="badge bg-danger">Error</span> ${data.error || 'Unknown error'}`;
+                        }
+                        if (progressBar) {
+                            progressBar.classList.remove('progress-bar-striped', 'progress-bar-animated');
+                            progressBar.classList.add('bg-danger');
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking processing status:', error);
+                });
+        });
+    }
+    
+    // Create the charts when the analytics tab is shown
+    document.addEventListener('DOMContentLoaded', function() {
+        // Start checking processing status if there are any processing files
+        if (document.querySelectorAll('.processing-row').length > 0) {
+            checkProcessingStatus();
+        }
+        
+        try {
+            // Status Code Distribution Chart
+            const statusChartData = JSON.parse('{{ status_chart|safe }}');
+            Plotly.newPlot('statusChart', statusChartData.data, statusChartData.layout);
+            
+            // Request Type Distribution Chart
+            const requestChartData = JSON.parse('{{ request_chart|safe }}');
+            Plotly.newPlot('requestChart', requestChartData.data, requestChartData.layout);
+            
+            // Top 5 IPs Chart
+            const ipChartData = JSON.parse('{{ ip_chart|safe }}');
+            Plotly.newPlot('ipChart', ipChartData.data, ipChartData.layout);
+            
+            // Top 5 APIs Chart
+            const apiChartData = JSON.parse('{{ api_chart|safe }}');
+            Plotly.newPlot('apiChart', apiChartData.data, apiChartData.layout);
+        } catch (e) {
+            console.error('Error initializing charts:', e);
+        }
+        
+        // Add loading state to reset button
+        const confirmResetBtn = document.getElementById('confirmResetBtn');
+        if (confirmResetBtn) {
+            confirmResetBtn.addEventListener('click', function(e) {
+                toggleButtonLoading(this, true);
+            });
+        }
+    });
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="text-center mb-5">
+    <h1 class="display-4"><i class="bi bi-speedometer2"></i> Dashboard</h1>
+    <p class="lead">Overview of your log data and uploaded files</p>
+    <div class="mt-3">
+        <a href="{{ url_for('index') }}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-upload"></i> Upload New Log
+        </a>
+        <button type="button" class="btn btn-outline-danger btn-sm ms-2" data-bs-toggle="modal" data-bs-target="#resetModal">
+            <i class="bi bi-arrow-counterclockwise"></i> Reset All Data
+        </button>
+    </div>
+</div>
+
+<!-- Reset Confirmation Modal -->
+<div class="modal fade" id="resetModal" tabindex="-1" aria-labelledby="resetModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="resetModalLabel"><i class="bi bi-exclamation-triangle text-danger"></i> Confirm Reset</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to reset all log data? This action will:</p>
+                <ul>
+                    <li>Delete all log entries from the database</li>
+                    <li>Remove all uploaded log files</li>
+                    <li>Clear all statistics and analytics</li>
+                </ul>
+                <p class="text-danger"><strong>This action cannot be undone!</strong></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <a href="{{ url_for('reset_data') }}" class="btn btn-danger" id="confirmResetBtn">
+                    <i class="bi bi-arrow-counterclockwise"></i> Reset All Data
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Dashboard Tabs -->
+<ul class="nav nav-tabs mb-4" id="dashboardTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="summary-tab" data-bs-toggle="tab" data-bs-target="#summary" type="button" role="tab" aria-controls="summary" aria-selected="true">
+            <i class="bi bi-speedometer2"></i> Summary
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="logs-tab" data-bs-toggle="tab" data-bs-target="#logs" type="button" role="tab" aria-controls="logs" aria-selected="false">
+            <i class="bi bi-list-ul"></i> View Logs
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <a class="nav-link" id="analytics-tab" href="/dash/" role="tab" aria-selected="false">
+            <i class="bi bi-graph-up"></i> Analytics
+        </a>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="history-tab" data-bs-toggle="tab" data-bs-target="#history" type="button" role="tab" aria-controls="history" aria-selected="false">
+            <i class="bi bi-clock-history"></i> Upload History
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content" id="dashboardTabsContent">
+    <!-- Summary Tab -->
+    <div class="tab-pane fade show active" id="summary" role="tabpanel" aria-labelledby="summary-tab">
+        <div class="row">
+            <!-- Summary Cards -->
+            <div class="col-md-4 mb-4">
+                <div class="card shadow h-100 border-0">
+                    <div class="card-body text-center">
+                        <div class="d-inline-block p-3 rounded-circle mb-3" style="background-color: rgba(13, 110, 253, 0.1);">
+                            <i class="bi bi-file-text text-primary fs-3"></i>
+                        </div>
+                        <h3 class="card-title h5 text-primary">Total Log Entries</h3>
+                        <h2 class="display-4 fw-bold">{{ total_logs|default(0) }}</h2>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4 mb-4">
+                <div class="card shadow h-100 border-0">
+                    <div class="card-body text-center">
+                        <div class="d-inline-block p-3 rounded-circle mb-3" style="background-color: rgba(25, 135, 84, 0.1);">
+                            <i class="bi bi-pc-display text-success fs-3"></i>
+                        </div>
+                        <h3 class="card-title h5 text-success">Unique IP Addresses</h3>
+                        <h2 class="display-4 fw-bold">{{ unique_ips|default(0) }}</h2>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4 mb-4">
+                <div class="card shadow h-100 border-0">
+                    <div class="card-body text-center">
+                        <div class="d-inline-block p-3 rounded-circle mb-3" style="background-color: rgba(220, 53, 69, 0.1);">
+                            <i class="bi bi-exclamation-triangle text-danger fs-3"></i>
+                        </div>
+                        <h3 class="card-title h5 text-danger">Error Responses</h3>
+                        <h2 class="display-4 fw-bold">{{ error_count|default(0) }}</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Files Card -->
+        <div class="row">
+            <div class="col-md-12 mb-4">
+                <div class="card shadow border-0">
+                    <div class="card-header bg-white">
+                        <h5 class="mb-0 text-dark"><i class="bi bi-file-earmark-text text-primary"></i> Recent Log Files</h5>
+                    </div>
+                    <div class="card-body">
+                        {% if files %}
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>File Name</th>
+                                        <th>Upload Date</th>
+                                        <th>Log Count</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for file in files[:5] %}
+                                    <tr>
+                                        <td>{{ file.file_name }}</td>
+                                        <td>{{ file.upload_date }}</td>
+                                        <td>{{ file.log_count }}</td>
+                                        <td>
+                                            <a href="#" class="btn btn-sm btn-outline-primary view-logs-btn" data-file-name="{{ file.file_name }}" onclick="showLogsTab('{{ file.file_name }}'); return false;">
+                                                <i class="bi bi-eye"></i> View Logs
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle"></i> No log files have been uploaded yet.
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    
+    <!-- Logs Tab -->
+    <div class="tab-pane fade" id="logs" role="tabpanel" aria-labelledby="logs-tab">
+        <div class="card shadow border-0 mb-4">
+            <div class="card-header bg-white">
+                <h5 class="mb-0 text-dark"><i class="bi bi-funnel text-primary"></i> Filter Logs</h5>
+            </div>
+            <div class="card-body">
+                <form id="logsFilterForm" class="row g-3">
+                    <div class="col-md-3">
+                        <label for="file_name" class="form-label">File Name</label>
+                        <select class="form-select" id="file_name" name="file_name">
+                            <option value="">All Files</option>
+                            {% for file in files %}
+                            <option value="{{ file.file_name }}">{{ file.file_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="ip" class="form-label">IP Address</label>
+                        <input type="text" class="form-control" id="ip" name="ip" placeholder="Filter by IP">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="status_code" class="form-label">Status Code</label>
+                        <input type="text" class="form-control" id="status_code" name="status_code" placeholder="e.g. 200, 404">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="request_type" class="form-label">Request Type</label>
+                        <select class="form-select" id="request_type" name="request_type">
+                            <option value="">All Types</option>
+                            <option value="GET">GET</option>
+                            <option value="POST">POST</option>
+                            <option value="PUT">PUT</option>
+                            <option value="DELETE">DELETE</option>
+                        </select>
+                    </div>
+                    <div class="col-12 text-end">
+                        <button type="submit" class="btn btn-primary" id="filterButton">
+                            <i class="bi bi-funnel"></i> Apply Filters
+                        </button>
+                        <button type="reset" class="btn btn-outline-secondary">
+                            <i class="bi bi-x-circle"></i> Clear Filters
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <div class="card shadow border-0">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0 text-dark"><i class="bi bi-list-ul text-primary"></i> Log Entries</h5>
+                <div>
+                    <input type="text" id="logsTableSearch" class="form-control form-control-sm" placeholder="Search logs...">
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="logsTableContainer" class="table-responsive">
+                    <!-- Logs will be loaded here via AJAX -->
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-3">Select a file or apply filters to view logs</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Analytics Tab removed - now using Dash at /dash/ -->
+    
+    <!-- History Tab -->
+    <div class="tab-pane fade" id="history" role="tabpanel" aria-labelledby="history-tab">
+        <div class="card shadow border-0">
+            <div class="card-header bg-white">
+                <h5 class="mb-0 text-dark"><i class="bi bi-clock-history text-primary"></i> Upload History</h5>
+            </div>
+            <div class="card-body">
+                {% if files %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>File Name</th>
+                                <th>Upload Date</th>
+                                <th>Record Count</th>
+                                <th>Unique IPs</th>
+                                <th>Error Count</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for file in files %}
+                            <tr>
+                                <td>{{ file.file_name }}</td>
+                                <td>{{ file.upload_date }}</td>
+                                <td>
+                                    {% if file.record_count == 0 %}
+                                    <span class="badge bg-warning text-dark">Processing</span>
+                                    {% else %}
+                                    {{ file.record_count }}
+                                    {% endif %}
+                                </td>
+                                <td>{{ file.unique_ips|default('-') }}</td>
+                                <td>{{ file.error_count|default('-') }}</td>
+                                <td>
+                                    <div class="btn-group">
+                                        {% if file.record_count > 0 %}
+                                        <a href="#" class="btn btn-sm btn-outline-primary view-logs-btn" data-file-name="{{ file.file_name }}" onclick="showLogsTab('{{ file.file_name }}'); return false;">
+                                            <i class="bi bi-eye"></i> View Logs
+                                        </a>
+
+                                        {% else %}
+                                        <button class="btn btn-sm btn-outline-primary" disabled>
+                                            <i class="bi bi-eye"></i> View Logs
+                                        </button>
+
+                                        {% endif %}
+                                        <a href="#" class="btn btn-sm btn-outline-danger" onclick="confirmDelete('{{ file.file_name }}'); return false;">
+                                            <i class="bi bi-trash"></i>
+                                        </a>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> No log files have been uploaded yet.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+
+{% endblock %}
