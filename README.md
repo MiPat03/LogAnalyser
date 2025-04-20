@@ -57,9 +57,9 @@ This application expects Apache server logs in the following format:
 
 Build and run the application using Docker:
 
-<pre> ```bash docker build -t log-analyzer . 
+<pre> docker build -t log-analyzer .
     
-docker run -p 5000:5000 -v $(pwd)/uploads:/app/uploads log-analyzer ``` </pre>
+docker run -p 5000:5000 log-analyzer </pre>
 
 ## License
 
