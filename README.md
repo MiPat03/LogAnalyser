@@ -22,7 +22,7 @@ A web application for uploading, parsing, storing, filtering, and visualizing Ap
 
 This application expects Apache server logs in the following format:
 
-IP Remote-LogName User-ID [Timestamp] "Request-Type API Protocol" Status-Code Bytes "Referrer" "User-Agent" Response-Time
+``` IP Remote-LogName User-ID [Timestamp] "Request-Type API Protocol" Status-Code Bytes "Referrer" "User-Agent" Response-Time ```
 
 
 ---
@@ -47,7 +47,9 @@ IP Remote-LogName User-ID [Timestamp] "Request-Type API Protocol" Status-Code By
     python app.py
     ```
 5. **Open your browser and navigate to:**  
+   ```
    [http://localhost:5000](http://localhost:5000)
+    ```
 
 ---
 
@@ -55,8 +57,7 @@ IP Remote-LogName User-ID [Timestamp] "Request-Type API Protocol" Status-Code By
 
 Build and run the application using Docker:
 
-docker build -t log-analyzer .
-docker run -p 5000:5000 -v $(pwd)/uploads:/app/uploads log-analyzer
+<pre> ```bash docker build -t log-analyzer . docker run -p 5000:5000 -v $(pwd)/uploads:/app/uploads log-analyzer ``` </pre>
 
 ## License
 
